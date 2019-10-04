@@ -5,7 +5,7 @@ title: "MVP 16S Year One, Phyloseq PreProcessing "
 
 Load Packages
 
-```
+
 library(phyloseq)
 library(ggplot2)
 library(vegan)
@@ -17,7 +17,7 @@ library(reshape2)
 library(plotly)
 library(ape)
 theme_set(theme_bw())
-```
+
 
 Load the .rds files output from dada2 and prepare them for use with phyloseq. Phyloseq needs 2-4 things: an ASV/OTU table, Taxonomy table and Sample Metadata file with Sample Names and ASV or OTU names that match exactly so that it can link the three tables together. Once the ASV/OTU table is loaded you can use ape to make a tree and merge it with the rest of the phyloseq object.
 
