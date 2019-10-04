@@ -1,0 +1,310 @@
+---
+title: "MVP 16S Year One, Phyloseq PreProcessing "
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## GitHub Documents
+
+This is an R Markdown format used for publishing markdown documents to GitHub. When you click the **Knit** button all R code chunks are run and a markdown file (.md) suitable for publishing to GitHub is generated.
+
+## Including Code
+
+You can include R code in the document as follows:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+Load Packages
+
+```{r load packages}
+library(phyloseq)
+library(ggplot2)
+library(vegan)
+library(plyr)
+library(dplyr)
+library(scales)
+library(grid)
+library(reshape2)
+library(plotly)
+library(ape)
+theme_set(theme_bw())
+```
+
+Load the .rds files output from dada2 and prepare them for use with phyloseq. Phyloseq needs 2-4 things: an ASV/OTU table, Taxonomy table and Sample Metadata file with Sample Names and ASV or OTU names that match exactly so that it can link the three tables together. Once the ASV/OTU table is loaded you can use ape to make a tree and merge it with the rest of the phyloseq object.
+
+Here, I ordered each table so that phyloseq would match them correctly later. I read in the raw .rds files, then rewrite them to .csv, order them in excel and then re-load into R.
+
+```{r }
+#the object "greenseqtab" refers to the the asv table that includes full sequence names, made with a dada2 & greengenes 13.8 
+greenseqtab_start <- readRDS("/yourfiles/seqtab_final.rds")
+write.csv(greenseqtab_start, "/yourfiles/seqtab_final_start.csv")
+
+#transpose greenseqtab so that the samples are columns,  order it alphabetically
+greenseqtab_totranspose <- as.matrix(greenseqtab_start)
+greenseqtab_toorder <- t(greenseqtab_totranspose)
+greenseqtab_ordered <- greenseqtab_toorder[order(rownames(greenseqtab_toorder)), ]
+write.csv(greenseqtab_ordered, "/yourfiles/seqtab_final_ordered_seqsasrows.csv")
+write.csv(colnames(greenseqtab_ordered), "/yourfiles/seqtab_final_ordered_colnamessamples.csv")
+
+#the object greentax refers to the taxonomy table created using dada2 and greengenes 13.8
+greentax_start <- readRDS("/yourfiles/tax_final.rds")
+write.csv(greentax, "/yourfiles/tax_final_start.csv")
+
+greentax_toorder <- as.matrix(greentax_start)
+greentax_ordered <-greentax_toorder[order(rownames(greenseqtab_toorder)), ]
+write.csv(greentax_ordered, "/yourfiles/tax_final_ordered.csv")
+
+#double check ordering
+head(rownames(greenseqtab_ordered))
+head(rownames(greentax_ordered))
+```
+
+Are the rows/columns of the two matrices in the correct and matching order? If yes, then great. If no, take a closer look and fix what needs to be fixed. 
+
+Before moving on, I will save the a list of full sequences for later, both as a file and as an object, names.taxa. These will be used to make .biom and .fasta files for use in Picrust2
+
+```{r }
+
+#SAVE ORDERED LIST OF FULL ASV SEQUENCES FOR LATER.
+
+fullseqs <- rownames(greenseqtab_ordered)
+head(fullseqs)
+write.csv(fullseqs, "/yourfiles/picrust_fullseqs_ordered.csv")
+
+# now open picrus_fullseqs_ordered.csv in excel, and make column [1] "seq" and column [2] "ASV" and put in the number 1-lastASV
+# Save As the file with a new name, then read it back in as names.taxa
+
+names.taxa <-read.csv("/yourfiles/picrust_fullseqs_ordered_forfasta_july17.csv", header=T)
+head(names.taxa) 
+```
+
+Now I will assemble the phyloseq object, starting with the correctly formatted OTU/ASV table, then Taxonomy table. FYI, I am using ASVs although the code says OTU.
+
+```{r }
+# OTU
+OTU_infoready = greenseqtab_ordered
+colnames(OTU_infoready) <- paste0 ("SAMPLE", 1:ncol(OTU_infoready))
+rownames(OTU_infoready) <- paste0 ("ASV", 1:nrow(OTU_infoready))
+head(OTU_infoready)
+
+otumat = OTU_infoready
+head(otumat)
+
+# Taxonomy
+taxmat_infoready = as.matrix(greentax_ordered, header = TRUE)
+rownames(taxmat_infoready) <- paste0 ("ASV", 1:nrow(taxmat_infoready))
+head(taxmat_infoready)
+taxmat = taxmat_infoready
+taxmat
+
+nrow(taxmat)
+
+# Merge into phyloseq object
+OTU = otu_table(otumat, taxa_are_rows = TRUE)
+TAX = tax_table(taxmat)
+physeq = phyloseq(OTU, TAX)
+
+# Check out the phyloseq object
+sample_names(physeq)
+physeq
+
+#Load in sample data - WAIT TO DO THIS THE FIRST ROUND, see below for how to include observed richness, pre-rarified, in your analysis
+
+mappingdata = read.csv("/yourfiles/sampledata_july16.csv", header=TRUE, sep = ",")
+
+head(mappingdata)
+sampledata_ready <- as.data.frame(mappingdata)
+rownames(sampledata_ready) <- sample_names(physeq)
+sampledata = sample_data(sampledata_ready)
+tail(sampledata)
+class(sampledata)
+
+# merge the SampleData into a new phyloseq object
+physeqr = merge_phyloseq(physeq, sampledata)
+physeqr
+
+# add a tree to your phyloseq object by conducting a multiple sequence alignment with ("ape")
+
+random_tree = rtree(ntaxa(physeq), rooted=TRUE, tip.label=taxa_names(physeq))
+plot(random_tree) #you don't have to plot-- it can take a while to compute depending on how many ASVs you have and generally looks like a tangle without additional code to clean up the visualization
+
+#merge the tree to another new phyloseq object
+physeq2 <- merge_phyloseq(random_tree, physeq)
+
+#check it out
+phy_tree(physeq2)
+physeq2
+```
+
+Now that I have loaded everything into phyloseq, I'm going to filter out unwanted sequences such as mitochondria, chloroplasts and singletons by subsetting the phyloseq object into new phyloseq objects. 
+
+```{r }
+
+# remove mitochondria
+physeq_nomito <- subset_taxa(physeq2, (Family!="f__mitochondria"))
+physeq_nomito
+
+# remove Chloroplasts
+physeq_nomitochloro <- subset_taxa(physeq_nomito, (Class!="c__Chloroplast"))
+physeq_nomitochloro
+
+# remove singletons 
+physeq_nosinglemito <- prune_taxa(taxa_sums(physeq_nomitochloro) > 1, 
+                                  physeq_nomitochloro)
+physeq_nosinglemito
+
+# here I change that last object to a matrix in order to examine read distrubitions in future steps
+physeq_nosinglemitoDF = as(tax_table(physeq_nosinglemito), "matrix")
+
+#compare what's left - always a good idea to keep track of this info in the lab notebook!
+physeq2
+physeq_nosinglemito
+```
+
+
+Here I get observed richness (pre-rarify) here and add it into your mapping/sample data, then load in sample_data. This information ended up being not useful for the final manuscript because it is biased by overall read depth of each sample. But, can be interesting to have on-hand nonetheless. Using this method you can add in any of the supported richness measures you want-- I do that later with the rarefied data.
+
+```{r }
+richness <- estimate_richness(physeq_nosinglemito, split = TRUE, measures = c("Observed"))
+write.csv(richness, file = "/yourfiles/richness_observedprerare_july29.csv")
+head(richness)
+
+#Load in sample data with the observed richness data 
+mappingdata = read.csv("/yourfiles/sampledata_july17.csv", header=TRUE, sep = ",")
+
+head(mappingdata)
+sampledata_ready <- as.data.frame(mappingdata)
+rownames(sampledata_ready) <- sample_names(physeq)
+sampledata = sample_data(sampledata_ready)
+head(sampledata)
+class(sampledata)
+colnames(mappingdata)
+
+
+physeq3 = merge_phyloseq(physeq_nosinglemito, sampledata)
+physeq3
+```
+
+Our first three sequencing runs contained a few East Side samples from the August 2018 timepoint, so I get rid of those here to focus only on the first two timepionts, September 2017 and March 2018.
+
+```{r }
+#remove aug18 samples
+physeq3_noaug18prune <- subset_samples(physeq3, (TIMEPOINT!="AUG18"))
+physeq_noaug18<- prune_taxa(taxa_sums(physeq3_noaug18prune) > 0, 
+                                  physeq3_noaug18prune) #it's important to get rid of taca that
+physeq3_noaug18
+```
+
+Okay! Now it is time to rarefy samples to the same number of reads. But to how many reads? First let's take a look at how many reads there are per sample by turning the prepped phyloseq object into a data frame, then plotting a histogram of the number of reads in samples. 
+
+```{r }
+# physeq3_noaug18 initial distribution of read counts
+physeq3_noaug18_sample_sum_df <- data.frame(sum = sample_sums(physeq3_noaug18))
+ggplot(physeq3_noaug18_sample_sum_df, aes(x = sum)) + 
+  geom_histogram(color = "black", fill = "indianred", binwidth = 1000) + # note: binwidth can get changed to however many reads you'd like-- this is telling the program how to chunk each bar of the histogram
+  ggtitle("Distribution of sample sequencing depth") + 
+  xlab("Read counts") +
+  theme(axis.title.y = element_blank())
+
+write.csv(physeq3_noaug18_sample_sum_df, "/yourfiles/physeq3_noaug18_readdepth_noprune.csv") # I wrote this to a file for safe keeping, and to see how many samples had 0 reads after processing, etc.
+
+#these objects will appear in the global environment and tell what was the min, mean and max reads of samples in your sample pool. Another good thing to write down and to take into consideration.
+smin <- min(sample_sums(physeq3_noaug18))
+smean <- mean(sample_sums(physeq3_noaug18))
+smax <- max(sample_sums(physeq3_noaug18))
+```
+
+We decided to get rid of samples with less than 1000 reads
+```{r }
+physeq3_noaug18_nooutlierlow <- prune_samples(sample_sums(physeq3_noaug18) > 1000, 
+                                              physeq3_noaug18)
+physeq3_noaug18_nooutlierlow
+
+
+# Here I re-checked the read distributions and redid the min, mean and max reads calculation.
+physeq3_noaug18_nooutlierlow_sample_sum_df <- data.frame(sum = sample_sums(physeq3_noaug18_nooutlierlow))
+ggplot(physeq3_noaug18_nooutlierlow_sample_sum_df, aes(x = sum)) + 
+  geom_histogram(color = "black", fill = "indianred", binwidth = 1000) +
+  ggtitle("Distribution of sample sequencing depth") + 
+  xlab("Read counts") +
+  theme(axis.title.y = element_blank())
+
+smin <- min(sample_sums(physeq3_noaug18_nooutlierlow))
+smean <- mean(sample_sums(physeq3_noaug18_nooutlierlow))
+smax <- max(sample_sums(physeq3_noaug18_nooutlierlow))
+```
+
+Now I make rarefaction curves, which appeared in the plot viewer and I saved to my output files. This takes a while on a personal laptop, depending on how many samples-- about enough good time to make a cup of tea, let it steep and come back.
+
+Then, after discussing with Andrew, I rarefied to 1028 reads, which was the lowest amount of reads in any sample, after getting rid of samples <1000 reads. Here I used rngseed=711, from the phyloseq tutorial, and should be noted in order for future reproducibility.
+
+```{r }
+
+# Rarefaction Curves:
+rarecurve(t(otu_table(physeq3_noaug18_nooutlierlow)), step=50, cex=0.5)
+
+#Rarefy to even depth
+microbiomes_rarefied <- rarefy_even_depth(physeq3_noaug18_nooutlierlow, sample.size = 1028,
+                                          rngseed = 711, replace = TRUE, 
+                                          trimOTUs = TRUE, verbose = TRUE)
+microbiomes_rarefied
+```
+
+Now microbiomes_rarefied is the phyloseq object that contains all of our Sep17 and Mar18 sediment, wter and coral microbiome samples, with no mitochondria or chloroplasts or singletons, rarefied to 1028 reads in each sample. 
+
+Now I will get several richness estimates from each sample, and add that information to my sample_data as additional columns.
+
+```{r }
+#get the richness estimates
+
+microbiomes_richness_estimates <- estimate_richness(microbiomes_rarefied, measures = c("Observed", "Shannon","Chao1", "Simpson"))
+head(microbiomes_richness_estimates)
+class(microbiomes_richness_estimates) #data.frame --> merge this to sample_data
+
+microbio.samnew <-sample_data(microbiomes_richness_estimates)
+microbio.samnew
+
+microbiomes_rarefied2 <-merge_phyloseq(microbiomes_rarefied, microbio.samnew)
+head(sample_data(microbiomes_rarefied2))
+microbiomes_rarefied2
+```
+
+Now that we have our final microbiomes_rarefied2 phyloseq object all ready to go, I exported a copy of the otu_table, tax_table and sample_data as .csv in order to upload to the CGRB server for use with the interactive Rstudio interface on harold (some of the stats were taking just too long on my computer).
+
+```{r }
+# 1) write otu table and save as .csv
+OTU_microbiomes = as(otu_table(microbiomes_rarefied2), "matrix")
+OTU_microbiomesdf = as.data.frame(OTU_microbiomes)
+head(OTU_microbiomesdf)
+write.csv(OTU_microbiomesdf, "/yourfiles/microbiomes_OTU.csv")
+
+# 2) write taxonomy table and save as .csv
+META_microbiomes = as(sample_data(microbiomes_rarefied2), "matrix")
+META_microbiomesdf = as.data.frame(META_microbiomes)
+head(META_microbiomesdf)
+write.csv(META_microbiomesdf, "/yourfiles/microbiomes_META.csv")
+
+# 3) write sample metadata sheet and save as .csv
+TAX_microbiomes = as(tax_table(microbiomes_rarefied2), "matrix")
+TAX_microbiomesdf = as.data.frame(TAX_microbiomes)
+head(TAX_microbiomesdf)
+write.csv(TAX_microbiomesdf, "/yourfiles/microbiomes_TAX.csv")
+```
+
+
