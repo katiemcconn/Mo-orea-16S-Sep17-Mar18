@@ -5,7 +5,7 @@ title: "MVP 16S Year One, Phyloseq PreProcessing "
 
 Load Packages
 
-
+```
 library(phyloseq)
 library(ggplot2)
 library(vegan)
@@ -17,7 +17,7 @@ library(reshape2)
 library(plotly)
 library(ape)
 theme_set(theme_bw())
-
+```
 
 Load the .rds files output from dada2 and prepare them for use with phyloseq. Phyloseq needs 2-4 things: an ASV/OTU table, Taxonomy table and Sample Metadata file with Sample Names and ASV or OTU names that match exactly so that it can link the three tables together. Once the ASV/OTU table is loaded you can use ape to make a tree and merge it with the rest of the phyloseq object.
 
@@ -25,6 +25,7 @@ Here, I ordered each table so that phyloseq would match them correctly later. I 
 
 ```
 # the object "greenseqtab" refers to the the asv table that includes full sequence names, made with a dada2 & greengenes 13.8 
+
 greenseqtab_start <- readRDS("/yourfiles/seqtab_final.rds")
 write.csv(greenseqtab_start, "/yourfiles/seqtab_final_start.csv")
 
@@ -35,7 +36,7 @@ greenseqtab_ordered <- greenseqtab_toorder[order(rownames(greenseqtab_toorder)),
 write.csv(greenseqtab_ordered, "/yourfiles/seqtab_final_ordered_seqsasrows.csv")
 write.csv(colnames(greenseqtab_ordered), "/yourfiles/seqtab_final_ordered_colnamessamples.csv")
 
-#the object greentax refers to the taxonomy table created using dada2 and greengenes 13.8
+# the object greentax refers to the taxonomy table created using dada2 and greengenes 13.8
 greentax_start <- readRDS("/yourfiles/tax_final.rds")
 write.csv(greentax, "/yourfiles/tax_final_start.csv")
 
@@ -43,7 +44,7 @@ greentax_toorder <- as.matrix(greentax_start)
 greentax_ordered <-greentax_toorder[order(rownames(greenseqtab_toorder)), ]
 write.csv(greentax_ordered, "/yourfiles/tax_final_ordered.csv")
 
-#double check ordering
+# double check ordering
 head(rownames(greenseqtab_ordered))
 head(rownames(greentax_ordered))
 ```
@@ -51,7 +52,6 @@ head(rownames(greentax_ordered))
 Are the rows/columns of the two matrices in the correct and matching order? If yes, then great. If no, take a closer look and fix what needs to be fixed. 
 
 Before moving on, I will save the a list of full sequences for later, both as a file and as an object, names.taxa. These will be used to make .biom and .fasta files for use in Picrust2
-
 ```
 
 # saving ordered list of full sequences names for later
