@@ -1,0 +1,116 @@
+MVP - DADA2 PIPELINE USING GREENGENES13.8 - JULY 10 2019
+This is done first on the command line, then interactively in R on the server. Be sure to reserve some processors before doing the dada2 steps.
+
+--By Katie McConnell--
+
+Pool all of the fwd sequences - NOTE: if there are samples from other projects here, an easy way to get rid of them is to manually remove them from the FWD folder using the cgrb's file server via Cyberduck
+
+RUN3
+directory:
+
+/nfs2/hts/miseq/190708_M01498_0580_000000000-CF954/Data/Intensities/BaseCalls
+
+command: 
+```
+cp -r /nfs2/hts/miseq/190708_M01498_0580_000000000-CF954/Data/Intensities/BaseCalls/*_R1_001.fast* /nfs1/MICRO/Thurber_Lab/katie/MVP/FWD/
+```
+
+RUN2
+Directory:
+
+/nfs2/hts/miseq/190417_M01498_0552_000000000-C9F3M/Data/Intensities/BaseCalls
+
+command:
+```
+cp -r /nfs2/hts/miseq/190417_M01498_0552_000000000-C9F3M/Data/Intensities/BaseCalls/*_R1_001.fast* /nfs1/MICRO/Thurber_Lab/katie/MVP/FWD/
+```
+
+RUN1
+diretory:
+
+/nfs2/hts/miseq/2018/180828_M01498_0478_000000000-C2HC9/Data/Intensities/BaseCalls/
+
+command:
+```
+cp -r /nfs2/hts/miseq/2018/180828_M01498_0478_000000000-C2HC9/Data/Intensities/BaseCalls/*_R1_001.fast* /nfs1/MICRO/Thurber_Lab/katie/MVP/FWD/
+```
+
+Now log into the shell, gunzip the files and go through this dada2 pipeline:
+1) claim some threads
+```
+qrsh -q yukon -pe thread 20
+```
+
+2) gunzip the files, this might take a few moments
+```
+gunzip /nfs1/MICRO/Thurber_Lab/katie/MVP/FWD/*.gz
+```
+3)setup the interactive R environment and dive into the world of dada2-- the following code comes from the tutorial
+```
+setenv R_LIBS /local/cluster/R_Packages/3.5
+/local/cluster/R-3.5.0/bin/R
+
+library(dada2)
+
+setwd("/nfs1/MICRO/Thurber_Lab/katie/MVP/FWD/")
+
+path <- "/nfs1/MICRO/Thurber_Lab/katie/MVP/FWD/"
+
+filtpath <- file.path(path, "filtered")
+fns <- list.files(path, pattern = "fastq")
+```
+
+
+3.1) FILTER AND TRIM -- this is one of the most important steps. Carefully consider your parameters and do some reading up about it
+```
+out <- filterAndTrim(file.path(path,fns), file.path(filtpath,fns),
+                     maxN=0, maxEE=c(2,2), truncQ=2, truncLen = (230), rm.phix=TRUE,
+                     compress=TRUE, multithread=TRUE)
+```
+
+write a logfile of what made it and what didn't
+```
+write.csv(out, file = "/nfs1/MICRO/Thurber_Lab/katie/MVP/FWD/log_filterandtrim.csv")
+```
+
+3.2 LEARN ERROR RATES -- of filtered files and save plots to the directory (note: remember to note the set seed for reproducibility)
+```
+filtpath <- "/nfs1/MICRO/Thurber_Lab/katie/MVP/FWD/filtered/"
+
+filts <- list.files(filtpath, pattern="fastq", full.names=TRUE)
+sample.names <- sapply(strsplit(basename(filts), "_"), `[`, 1)
+names(filts) <- sample.names
+
+set.seed(100)
+err <- learnErrors(filts, nbases = 1e8, multithread=TRUE, randomize=TRUE)
+
+errplot <- plotErrors(err, nominalQ = TRUE)
+pdf("/nfs1/MICRO/Thurber_Lab/katie/MVP/FWD/errplot.pdf")
+errplot
+dev.off()
+```
+
+3.3 DEREPlicate and Remove Chimeras
+```
+dds <- vector("list", length(sample.names))
+names(dds) <- sample.names
+for(sam in sample.names) {
+  cat("Processing:", sam, "\n")
+  derep <- derepFastq(filts[[sam]])
+  dds[[sam]] <- dada(derep, err=err, multithread=TRUE)
+}
+```
+3.4 save processed asv table, assign taxonomy using greengenes 13.8 (downloaded to home directory), then save taxonomy table
+```
+seqtab <- makeSequenceTable(dds)
+saveRDS(seqtab, "/nfs1/MICRO/Thurber_Lab/katie/MVP/FWD/seqtab.rds")
+
+foo <- readRDS("/nfs1/MICRO/Thurber_Lab/katie/MVP/FWD/seqtab.rds")
+
+seqtab <- removeBimeraDenovo(foo, method="consensus", multithread=TRUE)
+tax <- assignTaxonomy(seqtab, "/nfs1/MICRO/Thurber_Lab/katie/greengenes/gg_13_8_train_set_97.fa.gz", multithread=TRUE)
+saveRDS(seqtab, "/nfs1/MICRO/Thurber_Lab/katie/MVP/seqtab_final.rds")
+saveRDS(tax, "/nfs1/MICRO/Thurber_Lab/katie/MVP/FWD/tax_final.rds")
+```
+
+Cool! Now go to the next document for further preprocessing in phyloseq!
