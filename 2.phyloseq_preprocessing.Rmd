@@ -174,13 +174,17 @@ physeq3 = merge_phyloseq(physeq_nosinglemito, sampledata)
 physeq3
 ```
 
-Our first three sequencing runs contained a few East Side samples from the August 2018 timepoint, so I get rid of those here to focus only on the first two timepionts, September 2017 and March 2018.
+Our first three sequencing runs contained a few East Side samples from the August 2018 timepoint, so I get rid of those here to focus only on the first two timepionts, September 2017 and March 2018. There are also samples from a nutrient enrichment experiment, known as RAPID, that we want to remove. We only want to work with MVP samples.
 
 ```
 #remove aug18 samples
 physeq3_noaug18prune <- subset_samples(physeq3, (TIMEPOINT!="AUG18"))
-physeq_noaug18<- prune_taxa(taxa_sums(physeq3_noaug18prune) > 0, 
-                                  physeq3_noaug18prune) #it's important to get rid of taca that
+physeq_noaug18_1prune<- prune_taxa(taxa_sums(physeq3_noaug18prune) > 0, 
+                                  physeq3_noaug18prune)
+                                  
+physeq3_noaug18_MVPonlyprune<- subset_samples(physeq_noaug18_1prune, (PROJECT=="MVP"))
+physeq3_noaug18 <- prune_taxa(taxa_sums(physeq3_noaug18_MVPonlyprune) > 0, physeq3_noaug18_MVPonlyprune)
+                                  
 physeq3_noaug18
 ```
 
